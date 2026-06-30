@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: order-payment-inventory-concurrency-lab
+  datasource:
+    url: jdbc:postgresql://localhost:5432/concurrency_lab
+    username: concurrency_lab
+    password: concurrency_lab
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+  flyway:
+    enabled: true

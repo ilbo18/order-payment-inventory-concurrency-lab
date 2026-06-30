@@ -1,0 +1,17 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        maven { url = uri('https://repo1.maven.org/maven2') }
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+        maven { url = uri('https://repo1.maven.org/maven2') }
+    }
+}
+
+rootProject.name = 'order-payment-inventory-concurrency-lab'
