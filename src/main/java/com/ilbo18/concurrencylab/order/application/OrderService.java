@@ -61,7 +61,6 @@ public class OrderService {
         Product product = getProduct(item.productId());
         Inventory inventory = getInventory(item.productId());
 
-        // 이번 단계는 락 없이 현재 조회된 재고를 바로 차감해 다음 단계에서 동시성 문제를 재현할 수 있게 둔다.
         inventory.decrease(item.quantity());
 
         return new OrderItem(product.getId(), item.quantity(), product.getPrice());
@@ -80,7 +79,8 @@ public class OrderService {
     }
 
     private Inventory getInventory(Long productId) {
-        return inventoryRepository.findByProductId(productId)
+        // 같은 상품의 재고 차감 요청을 직렬화하기 위해 주문 생성 트랜잭션 안에서 재고 행에 PESSIMISTIC_WRITE 락을 건다.
+        return inventoryRepository.findByProductIdForUpdate(productId)
                 .orElseThrow(() -> new NotFoundException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
     }
 
