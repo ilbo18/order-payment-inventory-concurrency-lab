@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.product.application;
 
 import com.ilbo18.concurrencylab.common.exception.NotFoundException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.product.domain.Product;
 import com.ilbo18.concurrencylab.product.infrastructure.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,13 +33,12 @@ public class ProductService {
      */
     public Product get(Long productId) {
         validateProductId(productId);
-        return productRepository.findById(productId)
-                .orElseThrow(() -> new NotFoundException("Product not found. productId=" + productId));
+        return productRepository.findById(productId).orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId));
     }
 
     private void validateProductId(Long productId) {
         if (productId == null || productId <= 0) {
-            throw new NotFoundException("Product not found. productId=" + productId);
+            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
         }
     }
 }

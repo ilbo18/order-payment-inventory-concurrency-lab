@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.inventory.application;
 
 import com.ilbo18.concurrencylab.common.exception.DuplicateInventoryException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.common.exception.NotFoundException;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
@@ -37,8 +38,7 @@ public class InventoryService {
      */
     public Inventory getByProductId(Long productId) {
         validateProductExists(productId);
-        return inventoryRepository.findByProductId(productId)
-                .orElseThrow(() -> new NotFoundException("Inventory not found. productId=" + productId));
+        return inventoryRepository.findByProductId(productId).orElseThrow(() -> new NotFoundException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
     }
 
     private void validateQuantity(int quantity) {
@@ -49,7 +49,7 @@ public class InventoryService {
 
     private void validateProductExists(Long productId) {
         if (productId == null || productId <= 0 || !productRepository.existsById(productId)) {
-            throw new NotFoundException("Product not found. productId=" + productId);
+            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
         }
     }
 
