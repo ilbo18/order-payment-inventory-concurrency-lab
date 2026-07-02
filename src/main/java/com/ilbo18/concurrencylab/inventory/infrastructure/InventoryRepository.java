@@ -17,4 +17,8 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select inventory from Inventory inventory where inventory.productId = :productId")
     Optional<Inventory> findByProductIdForUpdate(@Param("productId") Long productId);
+
+    // 낙관적 락은 조회 시점에는 락을 잡지 않고, 커밋 시점의 version 충돌로 동시 수정을 감지한다.
+    @Query("select inventory from Inventory inventory where inventory.productId = :productId")
+    Optional<Inventory> findByProductIdForOptimistic(@Param("productId") Long productId);
 }

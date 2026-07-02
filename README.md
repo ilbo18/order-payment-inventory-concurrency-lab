@@ -7,7 +7,8 @@
 - 주문 생성 시 재고 차감 흐름의 트랜잭션 경계
 - 동시에 같은 상품 재고를 차감할 때 발생할 수 있는 lost update, overselling 문제
 - PostgreSQL row-level lock 기반의 비관적 락 적용 방식
-- 향후 낙관적 락, Redis 분산락, 멱등키를 비교하기 위한 기반 구조
+- JPA `@Version` 기반의 낙관적 락 충돌 감지 방식
+- 향후 Redis 분산락, 멱등키를 비교하기 위한 기반 구조
 
 ## 기술 스택
 
@@ -38,6 +39,7 @@
 - 재고 부족 시 주문 실패
 - 전역 예외 응답 처리
 - 비관적 락 기반 재고 차감 정합성 보장
+- 낙관적 락 기반 주문 생성 흐름과 동시성 충돌 감지 테스트
 
 ## 동시성 문제
 
@@ -81,7 +83,26 @@ private Inventory getInventory(Long productId) {
 }
 ```
 
-## 동시성 테스트 시나리오
+## 낙관적 락 적용 방식
+
+`Inventory` 엔티티에는 JPA `@Version` 필드가 있습니다. 여러 트랜잭션이 같은 Inventory row를 읽은 뒤 동시에 수정하면, 먼저 커밋된 트랜잭션이 version을 증가시키고 이후 커밋을 시도하는 트랜잭션은 version 불일치로 실패합니다.
+
+```java
+@Version
+@Column(nullable = false)
+private Long version;
+```
+
+낙관적 락 흐름은 기존 `OrderService.create`를 변경하지 않고 `OptimisticOrderService.create`로 분리했습니다. `InventoryRepository.findByProductIdForOptimistic`은 별도 `@Lock` 없이 일반 조회를 수행하고, 충돌 감지는 flush/commit 시점의 version 비교에 맡깁니다.
+
+```java
+@Query("select inventory from Inventory inventory where inventory.productId = :productId")
+Optional<Inventory> findByProductIdForOptimistic(@Param("productId") Long productId);
+```
+
+현재 낙관적 락 흐름은 충돌 감지만 수행하며, 충돌 발생 시 재시도 정책은 아직 구현하지 않았습니다.
+
+## 비관적 락 동시성 테스트 시나리오
 
 `OrderServiceConcurrencyTest`는 같은 상품에 대한 동시 주문 경합을 재현합니다.
 
@@ -96,6 +117,22 @@ private Inventory getInventory(Long productId) {
   - 실패 주문은 `InsufficientStockException`
 
 테스트는 `ExecutorService`와 `CountDownLatch`를 사용해 여러 주문 요청이 동시에 시작되도록 구성되어 있습니다.
+
+## 낙관적 락 동시성 테스트 시나리오
+
+`OptimisticOrderServiceConcurrencyTest`는 재시도 없는 낙관적 락 주문 생성 흐름에서 같은 상품 재고를 동시에 차감하는 상황을 재현합니다.
+
+- 초기 재고: 10
+- 동시 주문 요청: 20
+- 주문 수량: 각 1개
+- 기대 결과:
+  - 성공 주문 수는 초기 재고 이하
+  - 최종 재고는 음수가 아님
+  - 생성된 주문 수 = 성공 주문 수
+  - 성공 주문 수 + 최종 재고 = 초기 재고
+  - 실패 원인은 낙관적 락 충돌 또는 재고 부족일 수 있음
+
+낙관적 락은 DB row를 미리 잠그지 않고 충돌을 감지하는 방식입니다. 따라서 충돌 시 재시도하지 않으면 동시에 들어온 주문 중 일부는 실패할 수 있습니다.
 
 현재 로컬 Windows 환경에서는 Testcontainers가 Docker를 감지하지 못하는 실행 환경 이슈가 남아 있습니다. 따라서 동시성 테스트 코드는 작성되어 있지만, 해당 환경에서는 Docker/Testcontainers 실행 조건을 먼저 점검해야 합니다.
 
@@ -136,6 +173,12 @@ Spring Boot 애플리케이션을 실행합니다.
 
 ```bash
 ./gradlew test --tests "com.ilbo18.concurrencylab.order.application.OrderServiceConcurrencyTest"
+```
+
+낙관적 락 동시성 테스트만 단독 실행하려면 다음 명령을 사용합니다.
+
+```bash
+./gradlew test --tests "com.ilbo18.concurrencylab.order.application.OptimisticOrderServiceConcurrencyTest"
 ```
 
 Windows PowerShell에서는 필요에 따라 `./gradlew` 대신 `.\gradlew.bat`을 사용할 수 있습니다.
@@ -211,19 +254,20 @@ curl -X GET "http://localhost:8080/api/orders/1"
 - 공통 예외 응답 처리
 - PostgreSQL Flyway migration
 - 비관적 락 기반 재고 차감
-- 주문 생성 동시성 테스트 코드
+- 낙관적 락 기반 주문 생성 서비스
+- 비관적 락/낙관적 락 주문 생성 동시성 테스트 코드
 
 미구현:
 
 - Payment
-- 낙관적 락 비교
+- 낙관적 락 충돌 재시도 정책
 - Redis 분산락 비교
 - 주문 취소 시 재고 복구
 - 결제 멱등키
 
 ## 향후 개선 계획
 
-- 낙관적 락 기반 재고 차감 방식 추가
+- 낙관적 락 충돌 재시도와 백오프 정책 추가
 - Redis 분산락 기반 재고 차감 방식 추가
 - Payment 승인/실패 흐름 추가
 - 주문 취소와 재고 복구 보상 처리 추가
