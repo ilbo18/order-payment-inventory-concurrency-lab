@@ -292,9 +292,13 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
   - 성공 주문 수 + 최종 재고 = 초기 재고
   - 실패 원인은 재고 부족 또는 Redis lock 획득 실패일 수 있음
 
-테스트는 PostgreSQL Testcontainers와 Redis Testcontainers를 함께 사용합니다. 현재 로컬 실행 환경 이슈가 있으면 테스트 실행 전에 Gradle Test Executor 또는 Docker 감지 단계에서 실패할 수 있습니다.
+테스트는 PostgreSQL Testcontainers와 Redis Testcontainers를 함께 사용합니다. Windows에서 사용자 홈 경로에 한글이 포함된 경우 Gradle worker classpath 파일 경로가 깨져 `Gradle Test Executor`가 시작 직후 실패할 수 있습니다.
 
-현재 로컬 Windows 환경에서는 Gradle Test Executor 또는 Testcontainers 실행 환경 이슈가 남아 있습니다. 따라서 동시성 테스트 코드는 작성되어 있지만, 해당 환경에서는 Gradle 테스트 실행 환경과 Docker/Testcontainers 조건을 먼저 점검해야 합니다.
+이 프로젝트의 `gradlew.bat`은 `GRADLE_USER_HOME`이 비어 있을 때 기본값을 `C:\gradle-cache`로 지정해 Gradle worker 경로를 ASCII 경로로 고정합니다. 따라서 Windows PowerShell에서는 별도 환경변수 없이도 Gradle Test Executor가 정상 기동해야 합니다.
+
+Testcontainers 테스트는 Docker Desktop이 Java Testcontainers에서 접근 가능한 상태여야 합니다. Docker CLI 연결은 정상이어도 Docker Java 클라이언트의 API version 협상 문제로 Testcontainers의 Docker 감지 단계에서 실패할 수 있습니다.
+
+이 프로젝트는 테스트 classpath에 `src/test/resources/docker-java.properties`를 두고 `api.version=1.44`를 명시합니다. Docker Desktop 29.x 환경에서 낮은 기본 API version 요청이 400 응답으로 거부되는 문제를 피하기 위한 설정이며, 개인 PC의 npipe 경로는 하드코딩하지 않습니다.
 
 ## 현재 검증 상태
 
@@ -304,8 +308,9 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
 - `compileTestJava` 성공
 - Spring Boot 애플리케이션 실행 확인
 - Docker Compose PostgreSQL 연결 확인
-
-Testcontainers 기반 전체 테스트가 현재 로컬 Windows 환경에서 성공했다고 보지는 않습니다.
+- `GlobalExceptionHandlerTest` 성공
+- `PaymentServiceTest` Testcontainers Docker 감지 및 PostgreSQL 컨테이너 기동 성공
+- `./gradlew.bat test --no-daemon --stacktrace` 성공
 
 ## 실행 방법
 
@@ -327,7 +332,27 @@ Spring Boot 애플리케이션을 실행합니다.
 ./gradlew clean build
 ```
 
-`clean build`는 테스트를 포함하므로, 현재 로컬 Windows 환경처럼 Gradle Test Executor 또는 Testcontainers 실행 환경 이슈가 있는 경우 실패할 수 있습니다.
+`clean build`는 테스트를 포함하므로 Docker Desktop이 실행 중이고 Testcontainers에서 접근 가능한 상태여야 합니다.
+
+## Windows 테스트 실행 문제 해결
+
+Gradle Test Executor가 `Could not find or load main class worker.org.gradle.process.internal.worker.GradleWorkerMain`로 실패하면 먼저 daemon을 정리한 뒤 다시 실행합니다.
+
+```powershell
+.\gradlew.bat --stop
+.\gradlew.bat clean compileJava compileTestJava --no-daemon --stacktrace
+.\gradlew.bat test --no-daemon --stacktrace --info
+```
+
+`gradlew.bat`은 `GRADLE_USER_HOME`이 지정되지 않은 경우 `C:\gradle-cache`를 사용합니다. 다른 캐시 경로를 쓰고 싶다면 실행 전에 직접 지정할 수 있습니다.
+
+```powershell
+$env:GRADLE_USER_HOME="C:\gradle-cache"
+```
+
+Gradle Test Executor가 정상 기동한 뒤 `Could not find a valid Docker environment`가 발생하면 Gradle 설정 문제가 아니라 Docker Desktop과 Testcontainers 연결 문제입니다. 이 경우 `docker context ls`, `docker version`, `docker info`로 Docker CLI 연결을 먼저 확인합니다.
+
+Docker CLI는 정상인데 Testcontainers 로그에 `NpipeSocketClientProviderStrategy`와 `BadRequestException status 400`이 함께 보이면 Docker API version 협상 문제일 수 있습니다. 현재 프로젝트는 `src/test/resources/docker-java.properties`의 `api.version=1.44` 설정으로 이 문제를 우회합니다.
 
 동시성 테스트만 단독 실행하려면 다음 명령을 사용합니다.
 
