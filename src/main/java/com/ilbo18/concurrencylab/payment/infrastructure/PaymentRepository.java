@@ -9,5 +9,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     Optional<Payment> findByOrderId(Long orderId);
 
+    Optional<Payment> findByIdempotencyKey(String idempotencyKey);
+
     boolean existsByOrderId(Long orderId);
 }

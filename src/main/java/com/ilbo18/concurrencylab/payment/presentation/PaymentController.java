@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,11 +26,14 @@ public class PaymentController {
     private final PaymentService paymentService;
 
     /**
-     * 외부 PG 연동 없이 요청 금액과 주문 금액을 검증한 뒤 결제를 승인한다.
+     * Idempotency-Key 기준으로 중복 요청을 식별하고, 외부 PG 연동 없이 요청 금액과 주문 금액을 검증한 뒤 결제를 승인한다.
      */
     @PostMapping("/approve")
-    public ResponseEntity<PaymentResponse> approve(@Valid @RequestBody PaymentApproveRequest request) {
-        Payment payment = paymentService.approve(request.toCommand());
+    public ResponseEntity<PaymentResponse> approve(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody PaymentApproveRequest request
+    ) {
+        Payment payment = paymentService.approve(request.toCommand(idempotencyKey));
 
         return ResponseEntity
                 .created(URI.create("/api/payments/" + payment.getId()))

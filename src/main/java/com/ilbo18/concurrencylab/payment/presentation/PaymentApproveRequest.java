@@ -19,7 +19,7 @@ public record PaymentApproveRequest(
         BigDecimal amount
 ) {
 
-    public PaymentApproveCommand toCommand() {
-        return new PaymentApproveCommand(orderId, amount);
+    public PaymentApproveCommand toCommand(String idempotencyKey) {
+        return new PaymentApproveCommand(orderId, amount, idempotencyKey);
     }
 }

@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 
 public record PaymentApproveCommand(
         Long orderId,
-        BigDecimal amount
+        BigDecimal amount,
+        String idempotencyKey
 ) {
 }

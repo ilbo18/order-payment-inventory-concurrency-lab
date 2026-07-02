@@ -11,7 +11,7 @@
 - 낙관적 락 충돌 발생 시 제한된 횟수만큼 재시도하는 방식
 - Redis key 기반 분산락으로 여러 애플리케이션 인스턴스의 재고 차감 진입 구간을 보호하는 방식
 - 주문 금액과 결제 요청 금액을 검증한 뒤 내부 결제 승인으로 주문을 확정하는 기본 흐름
-- 향후 멱등키를 비교하기 위한 기반 구조
+- Payment 승인 요청의 `Idempotency-Key` 기반 중복 처리 방지 흐름
 
 ## 기술 스택
 
@@ -50,6 +50,7 @@
 - 결제 승인 시 주문 금액 검증
 - 결제 승인 성공 시 주문 상태 CONFIRMED 전환
 - 주문별 중복 결제 차단
+- `Idempotency-Key` 기반 중복 결제 승인 요청 처리
 
 ## 동시성 문제
 
@@ -199,7 +200,18 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
 - Order 상태 CONFIRMED 전환
 - Payment 저장
 
-현재 단계에서는 외부 PG 승인, 결제 실패 콜백, 결제 멱등키를 구현하지 않았습니다. 금액 검증이 통과하면 내부 승인 성공으로 간주합니다.
+현재 단계에서는 외부 PG 승인과 결제 실패 콜백을 구현하지 않았습니다. 금액 검증이 통과하면 내부 승인 성공으로 간주합니다.
+
+## Payment 멱등키 흐름
+
+`POST /api/payments/approve`는 `Idempotency-Key` 헤더를 필수로 받습니다. 서버는 `orderId`와 정규화된 `amount`를 기반으로 요청 해시를 계산해 Payment에 함께 저장합니다.
+
+- 같은 `Idempotency-Key`와 같은 요청 내용이면 새 결제를 만들지 않고 기존 Payment를 반환
+- 같은 `Idempotency-Key`와 다른 `orderId` 또는 다른 `amount`이면 `IDEMPOTENCY_KEY_CONFLICT`로 실패
+- 비어 있거나 누락된 `Idempotency-Key`는 `INVALID_IDEMPOTENCY_KEY`로 실패
+- 다른 `Idempotency-Key`로 이미 결제된 주문을 다시 승인하면 `DUPLICATE_PAYMENT`로 실패
+
+금액 해시는 `amount.stripTrailingZeros().toPlainString()` 기준으로 계산하므로 `10000`, `10000.0`, `10000.00`은 같은 요청으로 취급합니다. 멱등키 컬럼은 기존 개발 데이터 migration을 고려해 nullable로 추가했지만, 신규 결제 생성 시 서비스와 도메인에서 필수값으로 검증합니다.
 
 ## 비관적 락 동시성 테스트 시나리오
 
@@ -396,6 +408,7 @@ curl -X GET "http://localhost:8080/api/orders/1"
 ```bash
 curl -X POST "http://localhost:8080/api/payments/approve" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: payment-approve-1" \
   -d '{
     "orderId": 1,
     "amount": 10000.00
@@ -425,6 +438,7 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - 주문 생성 시 재고 차감
 - 결제 승인 시 주문 상태 CONFIRMED 전환
 - 주문 금액과 결제 요청 금액 검증
+- 결제 승인 멱등키 처리
 - 재고 부족 예외 처리
 - `CustomException` + `ErrorCode` 기반 공통 예외 응답 처리
 - PostgreSQL Flyway migration
@@ -438,7 +452,6 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 미구현:
 
 - 주문 취소 시 재고 복구
-- 결제 멱등키
 - 외부 PG 연동
 - 결제 실패 콜백 처리
 - Redis 장애 시 주문 처리 정책
@@ -450,5 +463,5 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - Redis 장애 시 주문 실패/우회 정책 정리
 - 외부 PG 승인/실패 연동 흐름 추가
 - 주문 취소와 재고 복구 보상 처리 추가
-- 멱등키 기반 중복 주문/중복 결제 방지 추가
+- 주문 생성 멱등키 처리 추가
 - Testcontainers 테스트 실행 환경 안정화

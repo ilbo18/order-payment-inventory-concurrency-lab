@@ -11,6 +11,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 /**
  * 외부 PG 연동 없이 주문 금액 검증과 내부 결제 승인 트랜잭션을 처리한다.
@@ -29,11 +33,17 @@ public class PaymentService {
     @Transactional
     public Payment approve(PaymentApproveCommand command) {
         validateCommand(command);
+        String requestHash = calculateRequestHash(command);
+        Payment existingPayment = paymentRepository.findByIdempotencyKey(command.idempotencyKey()).orElse(null);
+        if (existingPayment != null) {
+            return resolveIdempotentPayment(existingPayment, requestHash);
+        }
+
         OrderEntity order = getOrder(command.orderId());
         validatePaymentNotExists(command.orderId());
         validateAmountMatches(order, command.amount());
 
-        Payment payment = Payment.ready(order.getId(), command.amount());
+        Payment payment = Payment.ready(order.getId(), command.amount(), command.idempotencyKey(), requestHash);
         payment.approve();
         order.confirm();
 
@@ -64,6 +74,26 @@ public class PaymentService {
         }
         validateOrderId(command.orderId());
         validateAmount(command.amount());
+        validateIdempotencyKey(command.idempotencyKey());
+    }
+
+    private Payment resolveIdempotentPayment(Payment existingPayment, String requestHash) {
+        if (!existingPayment.getRequestHash().equals(requestHash)) {
+            throw new CustomException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT, "Idempotency-Key already used with different payment request. paymentId=" + existingPayment.getId());
+        }
+        return existingPayment;
+    }
+
+    private String calculateRequestHash(PaymentApproveCommand command) {
+        String normalizedAmount = command.amount().stripTrailingZeros().toPlainString();
+        String requestSource = command.orderId() + "|" + normalizedAmount;
+        try {
+            MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+            byte[] digest = messageDigest.digest(requestSource.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 algorithm is not available.", exception);
+        }
     }
 
     private OrderEntity getOrder(Long orderId) {
@@ -101,6 +131,15 @@ public class PaymentService {
     private void validateAmount(BigDecimal amount) {
         if (amount == null || amount.signum() < 0) {
             throw new IllegalArgumentException("Payment amount must be greater than or equal to 0.");
+        }
+    }
+
+    private void validateIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_IDEMPOTENCY_KEY, "Idempotency-Key must not be blank.");
+        }
+        if (idempotencyKey.length() > 100) {
+            throw new CustomException(ErrorCode.INVALID_IDEMPOTENCY_KEY, "Idempotency-Key must be 100 characters or fewer.");
         }
     }
 }

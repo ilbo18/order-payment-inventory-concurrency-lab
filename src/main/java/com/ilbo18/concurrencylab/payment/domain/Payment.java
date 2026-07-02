@@ -38,6 +38,12 @@ public class Payment {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
+    @Column(length = 100)
+    private String idempotencyKey;
+
+    @Column(length = 64)
+    private String requestHash;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PaymentStatus status;
@@ -51,19 +57,23 @@ public class Payment {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
-    private Payment(Long orderId, BigDecimal amount) {
+    private Payment(Long orderId, BigDecimal amount, String idempotencyKey, String requestHash) {
         validateOrderId(orderId);
         validateAmount(amount);
+        validateIdempotencyKey(idempotencyKey);
+        validateRequestHash(requestHash);
         this.orderId = orderId;
         this.amount = amount;
+        this.idempotencyKey = idempotencyKey;
+        this.requestHash = requestHash;
         this.status = PaymentStatus.READY;
     }
 
     /**
      * 주문 금액 검증이 끝난 결제 요청을 승인 대기 상태로 생성한다.
      */
-    public static Payment ready(Long orderId, BigDecimal amount) {
-        return new Payment(orderId, amount);
+    public static Payment ready(Long orderId, BigDecimal amount, String idempotencyKey, String requestHash) {
+        return new Payment(orderId, amount, idempotencyKey, requestHash);
     }
 
     /**
@@ -114,6 +124,21 @@ public class Payment {
     private void validateAmount(BigDecimal amount) {
         if (amount == null || amount.signum() < 0) {
             throw new IllegalArgumentException("Payment amount must be greater than or equal to 0.");
+        }
+    }
+
+    private void validateIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_IDEMPOTENCY_KEY, "Idempotency-Key must not be blank.");
+        }
+        if (idempotencyKey.length() > 100) {
+            throw new CustomException(ErrorCode.INVALID_IDEMPOTENCY_KEY, "Idempotency-Key must be 100 characters or fewer.");
+        }
+    }
+
+    private void validateRequestHash(String requestHash) {
+        if (requestHash == null || requestHash.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_IDEMPOTENCY_KEY, "Payment request hash must not be blank.");
         }
     }
 }

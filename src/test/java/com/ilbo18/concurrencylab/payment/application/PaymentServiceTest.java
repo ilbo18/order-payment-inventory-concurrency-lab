@@ -61,7 +61,7 @@ class PaymentServiceTest {
     void 결제_승인_성공_시_APPROVED_결제가_생성된다() {
         OrderEntity order = saveOrder(BigDecimal.valueOf(10000));
 
-        Payment payment = paymentService.approve(new PaymentApproveCommand(order.getId(), BigDecimal.valueOf(10000)));
+        Payment payment = paymentService.approve(command(order.getId(), BigDecimal.valueOf(10000), "payment-key-1"));
 
         entityManager.flush();
         entityManager.clear();
@@ -78,7 +78,7 @@ class PaymentServiceTest {
     void 결제_승인_성공_시_주문_상태가_CONFIRMED로_변경된다() {
         OrderEntity order = saveOrder(BigDecimal.valueOf(15000));
 
-        paymentService.approve(new PaymentApproveCommand(order.getId(), BigDecimal.valueOf(15000)));
+        paymentService.approve(command(order.getId(), BigDecimal.valueOf(15000), "payment-key-2"));
 
         entityManager.flush();
         entityManager.clear();
@@ -92,7 +92,7 @@ class PaymentServiceTest {
     void 주문_금액과_결제_금액이_다르면_결제_승인이_실패한다() {
         OrderEntity order = saveOrder(BigDecimal.valueOf(10000));
 
-        assertThatThrownBy(() -> paymentService.approve(new PaymentApproveCommand(order.getId(), BigDecimal.valueOf(9000))))
+        assertThatThrownBy(() -> paymentService.approve(command(order.getId(), BigDecimal.valueOf(9000), "payment-key-3")))
                 .isInstanceOf(CustomException.class)
                 .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.PAYMENT_AMOUNT_MISMATCH));
@@ -100,7 +100,7 @@ class PaymentServiceTest {
 
     @Test
     void 없는_주문이면_결제_승인이_실패한다() {
-        assertThatThrownBy(() -> paymentService.approve(new PaymentApproveCommand(999L, BigDecimal.valueOf(10000))))
+        assertThatThrownBy(() -> paymentService.approve(command(999L, BigDecimal.valueOf(10000), "payment-key-4")))
                 .isInstanceOf(CustomException.class)
                 .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.ORDER_NOT_FOUND));
@@ -109,18 +109,85 @@ class PaymentServiceTest {
     @Test
     void 이미_결제된_주문이면_결제_승인이_실패한다() {
         OrderEntity order = saveOrder(BigDecimal.valueOf(10000));
-        paymentService.approve(new PaymentApproveCommand(order.getId(), BigDecimal.valueOf(10000)));
+        paymentService.approve(command(order.getId(), BigDecimal.valueOf(10000), "payment-key-5"));
 
         entityManager.flush();
         entityManager.clear();
 
-        assertThatThrownBy(() -> paymentService.approve(new PaymentApproveCommand(order.getId(), BigDecimal.valueOf(10000))))
+        assertThatThrownBy(() -> paymentService.approve(command(order.getId(), BigDecimal.valueOf(10000), "payment-key-6")))
                 .isInstanceOf(CustomException.class)
                 .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.DUPLICATE_PAYMENT));
     }
 
+    @Test
+    void 같은_멱등키와_같은_요청이면_기존_결제_결과를_반환한다() {
+        OrderEntity order = saveOrder(BigDecimal.valueOf(10000));
+        Payment firstPayment = paymentService.approve(command(order.getId(), new BigDecimal("10000.00"), "same-payment-key"));
+
+        entityManager.flush();
+        entityManager.clear();
+
+        Payment secondPayment = paymentService.approve(command(order.getId(), new BigDecimal("10000.0"), "same-payment-key"));
+
+        assertThat(secondPayment.getId()).isEqualTo(firstPayment.getId());
+        assertThat(paymentRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 같은_멱등키와_다른_금액이면_충돌로_실패한다() {
+        OrderEntity order = saveOrder(BigDecimal.valueOf(10000));
+        paymentService.approve(command(order.getId(), BigDecimal.valueOf(10000), "conflict-amount-key"));
+
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThatThrownBy(() -> paymentService.approve(command(order.getId(), BigDecimal.valueOf(9000), "conflict-amount-key")))
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
+    }
+
+    @Test
+    void 같은_멱등키와_다른_주문이면_충돌로_실패한다() {
+        OrderEntity firstOrder = saveOrder(BigDecimal.valueOf(10000));
+        OrderEntity secondOrder = saveOrder(BigDecimal.valueOf(10000));
+        paymentService.approve(command(firstOrder.getId(), BigDecimal.valueOf(10000), "conflict-order-key"));
+
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThatThrownBy(() -> paymentService.approve(command(secondOrder.getId(), BigDecimal.valueOf(10000), "conflict-order-key")))
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
+    }
+
+    @Test
+    void 멱등키가_비어_있으면_결제_승인이_실패한다() {
+        OrderEntity order = saveOrder(BigDecimal.valueOf(10000));
+
+        assertThatThrownBy(() -> paymentService.approve(command(order.getId(), BigDecimal.valueOf(10000), " ")))
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_IDEMPOTENCY_KEY));
+    }
+
+    @Test
+    void 멱등키가_없으면_결제_승인이_실패한다() {
+        OrderEntity order = saveOrder(BigDecimal.valueOf(10000));
+
+        assertThatThrownBy(() -> paymentService.approve(command(order.getId(), BigDecimal.valueOf(10000), null)))
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_IDEMPOTENCY_KEY));
+    }
+
     private OrderEntity saveOrder(BigDecimal amount) {
         return orderRepository.saveAndFlush(new OrderEntity(List.of(new OrderItem(1L, 1, amount))));
+    }
+
+    private PaymentApproveCommand command(Long orderId, BigDecimal amount, String idempotencyKey) {
+        return new PaymentApproveCommand(orderId, amount, idempotencyKey);
     }
 }
