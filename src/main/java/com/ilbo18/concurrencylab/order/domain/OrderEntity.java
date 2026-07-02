@@ -1,5 +1,7 @@
 package com.ilbo18.concurrencylab.order.domain;
 
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -58,6 +60,7 @@ public class OrderEntity {
      * 결제 승인 이후 주문을 확정 상태로 전환한다.
      */
     public void confirm() {
+        validateCreatedStatus("confirm");
         this.status = OrderStatus.CONFIRMED;
     }
 
@@ -90,5 +93,11 @@ public class OrderEntity {
         return orderItems.stream()
                 .map(OrderItem::getLineAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private void validateCreatedStatus(String action) {
+        if (this.status != OrderStatus.CREATED) {
+            throw new CustomException(ErrorCode.PAYMENT_ALREADY_COMPLETED, "Order cannot " + action + ". orderId=" + this.id + ", status=" + this.status);
+        }
     }
 }
