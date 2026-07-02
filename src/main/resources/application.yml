@@ -3,8 +3,8 @@ spring:
     name: order-payment-inventory-concurrency-lab
   datasource:
     url: jdbc:postgresql://localhost:5432/concurrency_lab
-    username: concurrency_lab
-    password: concurrency_lab
+    username: "admin"
+    password: "admin12!@"
   jpa:
     hibernate:
       ddl-auto: validate

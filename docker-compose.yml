@@ -6,8 +6,8 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_DB: concurrency_lab
-      POSTGRES_USER: concurrency_lab
-      POSTGRES_PASSWORD: concurrency_lab
+      POSTGRES_USER: "admin"
+      POSTGRES_PASSWORD: "admin12!@"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
