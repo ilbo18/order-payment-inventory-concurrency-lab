@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.order.application;
 
-import com.ilbo18.concurrencylab.common.exception.InsufficientStockException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
 import com.ilbo18.concurrencylab.order.infrastructure.OrderRepository;
@@ -101,7 +102,7 @@ class OrderServiceConcurrencyTest {
                                 createdOrderCount)
                                                   .isEqualTo(INITIAL_STOCK),
                 () -> assertThat(result.failures()).as("초기 재고를 초과한 주문은 자연스럽게 재고 부족 예외로 실패해야 한다.")
-                                                   .allMatch(InsufficientStockException.class::isInstance)
+                                                   .allMatch(failure -> hasCustomErrorCode(failure, ErrorCode.INSUFFICIENT_STOCK))
         );
     }
 
@@ -142,6 +143,17 @@ class OrderServiceConcurrencyTest {
         } finally {
             executorService.shutdownNow();
         }
+    }
+
+    private boolean hasCustomErrorCode(Throwable failure, ErrorCode expectedErrorCode) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof CustomException customException && customException.getErrorCode() == expectedErrorCode) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private record ConcurrencyResult(int successCount, int failureCount, Queue<Throwable> failures) {

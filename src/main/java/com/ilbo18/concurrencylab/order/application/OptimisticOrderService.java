@@ -1,7 +1,7 @@
 package com.ilbo18.concurrencylab.order.application;
 
+import com.ilbo18.concurrencylab.common.exception.CustomException;
 import com.ilbo18.concurrencylab.common.exception.ErrorCode;
-import com.ilbo18.concurrencylab.common.exception.NotFoundException;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
 import com.ilbo18.concurrencylab.order.domain.OrderEntity;
@@ -67,17 +67,17 @@ public class OptimisticOrderService {
     private Product getProduct(Long productId) {
         validateProductId(productId);
         return productRepository.findById(productId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId));
+                .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId));
     }
 
     private Inventory getInventory(Long productId) {
         return inventoryRepository.findByProductIdForOptimistic(productId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
+                .orElseThrow(() -> new CustomException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
     }
 
     private void validateProductId(Long productId) {
         if (productId == null || productId <= 0) {
-            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
+            throw new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
         }
     }
 }

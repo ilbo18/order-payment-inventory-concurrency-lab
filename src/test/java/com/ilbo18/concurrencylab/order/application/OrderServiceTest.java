@@ -1,8 +1,7 @@
 package com.ilbo18.concurrencylab.order.application;
 
+import com.ilbo18.concurrencylab.common.exception.CustomException;
 import com.ilbo18.concurrencylab.common.exception.ErrorCode;
-import com.ilbo18.concurrencylab.common.exception.InsufficientStockException;
-import com.ilbo18.concurrencylab.common.exception.NotFoundException;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
 import com.ilbo18.concurrencylab.order.domain.OrderEntity;
@@ -86,8 +85,8 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.create(new CreateOrderCommand(List.of(
                 new CreateOrderCommand.Item(product.getId(), 2)
         ))))
-                .isInstanceOf(InsufficientStockException.class)
-                .satisfies(exception -> assertThat(((InsufficientStockException) exception).getErrorCode())
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
     }
 
@@ -96,8 +95,8 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.create(new CreateOrderCommand(List.of(
                 new CreateOrderCommand.Item(999L, 1)
         ))))
-                .isInstanceOf(NotFoundException.class)
-                .satisfies(exception -> assertThat(((NotFoundException) exception).getErrorCode())
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.PRODUCT_NOT_FOUND));
     }
 
@@ -108,8 +107,8 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.create(new CreateOrderCommand(List.of(
                 new CreateOrderCommand.Item(product.getId(), 1)
         ))))
-                .isInstanceOf(NotFoundException.class)
-                .satisfies(exception -> assertThat(((NotFoundException) exception).getErrorCode())
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
                         .isEqualTo(ErrorCode.INVENTORY_NOT_FOUND));
     }
 

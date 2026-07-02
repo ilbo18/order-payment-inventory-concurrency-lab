@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.inventory.domain;
 
-import com.ilbo18.concurrencylab.common.exception.InsufficientStockException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -56,7 +57,7 @@ public class Inventory {
     public void decrease(int quantity) {
         validatePositiveQuantity(quantity);
         if (this.quantity < quantity) {
-            throw new InsufficientStockException(this.quantity, quantity);
+            throw new CustomException(ErrorCode.INSUFFICIENT_STOCK, "Insufficient stock. quantity=" + this.quantity + ", requestedQuantity=" + quantity);
         }
         this.quantity -= quantity;
     }

@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.product.application;
 
-import com.ilbo18.concurrencylab.common.exception.NotFoundException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.product.domain.Product;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +61,8 @@ class ProductServiceTest {
     @Test
     void 존재하지_않는_상품을_조회하면_예외가_발생한다() {
         assertThatThrownBy(() -> productService.get(999L))
-                .isInstanceOf(NotFoundException.class);
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.PRODUCT_NOT_FOUND));
     }
 }

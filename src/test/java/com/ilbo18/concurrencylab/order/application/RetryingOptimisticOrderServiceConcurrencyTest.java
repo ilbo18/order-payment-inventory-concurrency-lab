@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.order.application;
 
-import com.ilbo18.concurrencylab.common.exception.InsufficientStockException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
 import com.ilbo18.concurrencylab.order.infrastructure.OrderRepository;
@@ -137,9 +138,20 @@ class RetryingOptimisticOrderServiceConcurrencyTest {
     }
 
     private boolean isExpectedFailure(Throwable failure) {
-        return hasCause(failure, InsufficientStockException.class)
+        return hasCustomErrorCode(failure, ErrorCode.INSUFFICIENT_STOCK)
                 || hasCause(failure, OptimisticLockingFailureException.class)
                 || hasCause(failure, OptimisticLockException.class);
+    }
+
+    private boolean hasCustomErrorCode(Throwable failure, ErrorCode expectedErrorCode) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof CustomException customException && customException.getErrorCode() == expectedErrorCode) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private boolean hasCause(Throwable failure, Class<? extends Throwable> expectedType) {

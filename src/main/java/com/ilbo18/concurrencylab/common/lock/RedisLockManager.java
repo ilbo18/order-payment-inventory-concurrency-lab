@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.common.lock;
 
-import com.ilbo18.concurrencylab.common.exception.RedisLockException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.connection.RedisStringCommands;
 import org.springframework.data.redis.core.RedisCallback;
@@ -56,12 +57,12 @@ public class RedisLockManager {
             }
 
             if (retryCount == MAX_ACQUIRE_RETRY_COUNT) {
-                throw new RedisLockException(lockKey, retryCount);
+                throw new CustomException(ErrorCode.LOCK_ACQUIRE_FAILED, "Failed to acquire Redis lock. key=" + lockKey + ", retryCount=" + retryCount);
             }
             sleepBeforeRetry(lockKey);
         }
 
-        throw new RedisLockException(lockKey, MAX_ACQUIRE_RETRY_COUNT);
+        throw new CustomException(ErrorCode.LOCK_ACQUIRE_FAILED, "Failed to acquire Redis lock. key=" + lockKey + ", retryCount=" + MAX_ACQUIRE_RETRY_COUNT);
     }
 
     private Boolean tryAcquire(String lockKey, String lockValue) {
@@ -86,7 +87,7 @@ public class RedisLockManager {
             Thread.sleep(ACQUIRE_RETRY_BACKOFF_MILLIS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new RedisLockException("Interrupted while waiting for Redis lock. key=" + lockKey, exception);
+            throw new CustomException(ErrorCode.LOCK_ACQUIRE_FAILED, "Interrupted while waiting for Redis lock. key=" + lockKey, exception);
         }
     }
 

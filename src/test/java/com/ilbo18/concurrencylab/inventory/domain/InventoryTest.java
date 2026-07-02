@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.inventory.domain;
 
-import com.ilbo18.concurrencylab.common.exception.InsufficientStockException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,7 +23,9 @@ class InventoryTest {
         Inventory inventory = new Inventory(1L, 10);
 
         assertThatThrownBy(() -> inventory.decrease(11))
-                .isInstanceOf(InsufficientStockException.class);
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.INSUFFICIENT_STOCK));
     }
 
     @Test

@@ -1,7 +1,7 @@
 package com.ilbo18.concurrencylab.order.application;
 
-import com.ilbo18.concurrencylab.common.exception.InsufficientStockException;
-import com.ilbo18.concurrencylab.common.exception.RedisLockException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
 import com.ilbo18.concurrencylab.order.infrastructure.OrderRepository;
@@ -151,14 +151,14 @@ class RedisLockOrderServiceConcurrencyTest {
     }
 
     private boolean isExpectedFailure(Throwable failure) {
-        return hasCause(failure, InsufficientStockException.class)
-                || hasCause(failure, RedisLockException.class);
+        return hasCustomErrorCode(failure, ErrorCode.INSUFFICIENT_STOCK)
+                || hasCustomErrorCode(failure, ErrorCode.LOCK_ACQUIRE_FAILED);
     }
 
-    private boolean hasCause(Throwable failure, Class<? extends Throwable> expectedType) {
+    private boolean hasCustomErrorCode(Throwable failure, ErrorCode expectedErrorCode) {
         Throwable current = failure;
         while (current != null) {
-            if (expectedType.isInstance(current)) {
+            if (current instanceof CustomException customException && customException.getErrorCode() == expectedErrorCode) {
                 return true;
             }
             current = current.getCause();

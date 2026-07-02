@@ -1,6 +1,7 @@
 package com.ilbo18.concurrencylab.order.application;
 
-import com.ilbo18.concurrencylab.common.exception.InsufficientStockException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.order.domain.OrderEntity;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +31,7 @@ public class RetryingOptimisticOrderService {
                 // 같은 트랜잭션 안에서 반복하면 version 충돌 상태가 유지되므로, 매 시도마다 별도 서비스의 @Transactional 프록시를 다시 호출한다.
                 return optimisticOrderService.create(command);
             } catch (RuntimeException exception) {
-                if (hasCause(exception, InsufficientStockException.class)) {
+                if (hasCustomErrorCode(exception, ErrorCode.INSUFFICIENT_STOCK)) {
                     throw exception;
                 }
                 if (!isOptimisticLockFailure(exception)) {
@@ -51,6 +52,17 @@ public class RetryingOptimisticOrderService {
     private boolean isOptimisticLockFailure(Throwable failure) {
         return hasCause(failure, OptimisticLockingFailureException.class)
                 || hasCause(failure, OptimisticLockException.class);
+    }
+
+    private boolean hasCustomErrorCode(Throwable failure, ErrorCode expectedErrorCode) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof CustomException customException && customException.getErrorCode() == expectedErrorCode) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private boolean hasCause(Throwable failure, Class<? extends Throwable> expectedType) {

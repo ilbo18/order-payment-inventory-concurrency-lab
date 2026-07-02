@@ -52,7 +52,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 상품이_없으면_상품_없음_에러_응답을_반환한다() throws Exception {
-        given(productService.get(999L)).willThrow(new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=999"));
+        given(productService.get(999L)).willThrow(new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=999"));
 
         mockMvc.perform(get("/api/products/{productId}", 999L))
                 .andExpect(status().isNotFound())
@@ -62,7 +62,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 이미_재고가_존재하면_재고_중복_에러_응답을_반환한다() throws Exception {
-        given(inventoryService.register(1L, 10)).willThrow(new DuplicateInventoryException(1L));
+        given(inventoryService.register(1L, 10)).willThrow(new CustomException(ErrorCode.DUPLICATE_INVENTORY, "Inventory already exists. productId=1"));
 
         mockMvc.perform(post("/api/inventories")
                         .contentType(MediaType.APPLICATION_JSON)

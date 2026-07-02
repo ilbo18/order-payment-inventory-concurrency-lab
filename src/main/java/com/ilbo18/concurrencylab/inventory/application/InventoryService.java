@@ -1,8 +1,7 @@
 package com.ilbo18.concurrencylab.inventory.application;
 
-import com.ilbo18.concurrencylab.common.exception.DuplicateInventoryException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
 import com.ilbo18.concurrencylab.common.exception.ErrorCode;
-import com.ilbo18.concurrencylab.common.exception.NotFoundException;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
 import com.ilbo18.concurrencylab.product.infrastructure.ProductRepository;
@@ -38,7 +37,7 @@ public class InventoryService {
      */
     public Inventory getByProductId(Long productId) {
         validateProductExists(productId);
-        return inventoryRepository.findByProductId(productId).orElseThrow(() -> new NotFoundException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
+        return inventoryRepository.findByProductId(productId).orElseThrow(() -> new CustomException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
     }
 
     private void validateQuantity(int quantity) {
@@ -49,14 +48,14 @@ public class InventoryService {
 
     private void validateProductExists(Long productId) {
         if (productId == null || productId <= 0 || !productRepository.existsById(productId)) {
-            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
+            throw new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
         }
     }
 
     private void validateInventoryNotExists(Long productId) {
         // 상품별 재고 기준이 하나로 유지되어야 이후 재고 차감 동시성 테스트가 같은 행을 경합한다.
         if (inventoryRepository.findByProductId(productId).isPresent()) {
-            throw new DuplicateInventoryException(productId);
+            throw new CustomException(ErrorCode.DUPLICATE_INVENTORY, "Inventory already exists. productId=" + productId);
         }
     }
 }

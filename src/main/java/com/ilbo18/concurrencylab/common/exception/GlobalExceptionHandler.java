@@ -17,8 +17,8 @@ public class GlobalExceptionHandler {
     /**
      * 도메인 규칙 위반은 예외가 가진 에러 코드 기준으로 HTTP 상태와 응답 코드를 결정한다.
      */
-    @ExceptionHandler(DomainException.class)
-    public ResponseEntity<ErrorResponse> handleDomainException(DomainException exception) {
+    @ExceptionHandler(CustomException.class)
+    public ResponseEntity<ErrorResponse> handleCustomException(CustomException exception) {
         ErrorCode errorCode = exception.getErrorCode();
 
         return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.of(errorCode, exception.getMessage()));

@@ -1,7 +1,7 @@
 package com.ilbo18.concurrencylab.order.application;
 
+import com.ilbo18.concurrencylab.common.exception.CustomException;
 import com.ilbo18.concurrencylab.common.exception.ErrorCode;
-import com.ilbo18.concurrencylab.common.exception.NotFoundException;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.inventory.infrastructure.InventoryRepository;
 import com.ilbo18.concurrencylab.order.domain.OrderEntity;
@@ -47,7 +47,7 @@ public class OrderService {
     public OrderEntity get(Long orderId) {
         validateOrderId(orderId);
         return orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.ORDER_NOT_FOUND, "Order not found. orderId=" + orderId));
+                .orElseThrow(() -> new CustomException(ErrorCode.ORDER_NOT_FOUND, "Order not found. orderId=" + orderId));
     }
 
     private void validateCommand(CreateOrderCommand command) {
@@ -75,24 +75,24 @@ public class OrderService {
     private Product getProduct(Long productId) {
         validateProductId(productId);
         return productRepository.findById(productId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId));
+                .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId));
     }
 
     private Inventory getInventory(Long productId) {
         // 같은 상품의 재고 차감 요청을 직렬화하기 위해 주문 생성 트랜잭션 안에서 재고 행에 PESSIMISTIC_WRITE 락을 건다.
         return inventoryRepository.findByProductIdForUpdate(productId)
-                .orElseThrow(() -> new NotFoundException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
+                .orElseThrow(() -> new CustomException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
     }
 
     private void validateProductId(Long productId) {
         if (productId == null || productId <= 0) {
-            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
+            throw new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
         }
     }
 
     private void validateOrderId(Long orderId) {
         if (orderId == null || orderId <= 0) {
-            throw new NotFoundException(ErrorCode.ORDER_NOT_FOUND, "Order not found. orderId=" + orderId);
+            throw new CustomException(ErrorCode.ORDER_NOT_FOUND, "Order not found. orderId=" + orderId);
         }
     }
 }

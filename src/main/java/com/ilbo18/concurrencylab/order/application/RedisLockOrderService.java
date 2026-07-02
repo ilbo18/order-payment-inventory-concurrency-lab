@@ -1,11 +1,13 @@
 package com.ilbo18.concurrencylab.order.application;
 
+import com.ilbo18.concurrencylab.common.exception.CustomException;
 import com.ilbo18.concurrencylab.common.exception.ErrorCode;
-import com.ilbo18.concurrencylab.common.exception.NotFoundException;
 import com.ilbo18.concurrencylab.common.lock.RedisLockManager;
 import com.ilbo18.concurrencylab.common.lock.RedisLockManager.RedisLock;
 import com.ilbo18.concurrencylab.order.domain.OrderEntity;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -18,6 +20,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class RedisLockOrderService {
+
+    private static final Logger log = LoggerFactory.getLogger(RedisLockOrderService.class);
 
     private final RedisLockManager redisLockManager;
     private final RedisLockOrderTransactionService redisLockOrderTransactionService;
@@ -42,7 +46,8 @@ public class RedisLockOrderService {
                 if (orderFailure != null) {
                     orderFailure.addSuppressed(releaseFailure);
                 } else {
-                    throw releaseFailure;
+                    // 주문 DB 트랜잭션이 이미 성공했다면 응답을 실패로 뒤집지 않고, lock TTL 만료와 운영 로그로 후속 대응한다.
+                    log.warn("Redis lock release failed after successful order creation. Locks will expire by TTL.", releaseFailure);
                 }
             }
         }
@@ -94,7 +99,7 @@ public class RedisLockOrderService {
 
     private void validateProductId(Long productId) {
         if (productId == null || productId <= 0) {
-            throw new NotFoundException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
+            throw new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "Product not found. productId=" + productId);
         }
     }
 }

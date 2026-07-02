@@ -1,7 +1,7 @@
 package com.ilbo18.concurrencylab.inventory.application;
 
-import com.ilbo18.concurrencylab.common.exception.DuplicateInventoryException;
-import com.ilbo18.concurrencylab.common.exception.NotFoundException;
+import com.ilbo18.concurrencylab.common.exception.CustomException;
+import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.inventory.domain.Inventory;
 import com.ilbo18.concurrencylab.product.domain.Product;
 import com.ilbo18.concurrencylab.product.infrastructure.ProductRepository;
@@ -70,13 +70,17 @@ class InventoryServiceTest {
         inventoryService.register(product.getId(), 10);
 
         assertThatThrownBy(() -> inventoryService.register(product.getId(), 20))
-                .isInstanceOf(DuplicateInventoryException.class);
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.DUPLICATE_INVENTORY));
     }
 
     @Test
     void 존재하지_않는_상품에_재고를_등록하면_예외가_발생한다() {
         assertThatThrownBy(() -> inventoryService.register(999L, 10))
-                .isInstanceOf(NotFoundException.class);
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.PRODUCT_NOT_FOUND));
     }
 
     @Test
@@ -92,7 +96,9 @@ class InventoryServiceTest {
         Product product = saveProduct("재고 미등록 상품");
 
         assertThatThrownBy(() -> inventoryService.getByProductId(product.getId()))
-                .isInstanceOf(NotFoundException.class);
+                .isInstanceOf(CustomException.class)
+                .satisfies(exception -> assertThat(((CustomException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.INVENTORY_NOT_FOUND));
     }
 
     private Product saveProduct(String name) {

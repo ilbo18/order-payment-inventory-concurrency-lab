@@ -31,7 +31,7 @@
 - Product: 상품 정보 등록과 조회
 - Inventory: 상품별 재고 등록, 조회, 차감
 - Order: 주문 생성, 주문 항목 관리, 주문 조회
-- Common: 공통 예외, 에러 응답 처리
+- Common: `CustomException` + `ErrorCode` 기반 공통 예외, 에러 응답, Redis lock 처리
 
 ## 주요 기능
 
@@ -84,8 +84,38 @@ public OrderEntity create(CreateOrderCommand command) {
 ```java
 private Inventory getInventory(Long productId) {
     return inventoryRepository.findByProductIdForUpdate(productId)
-            .orElseThrow(() -> new NotFoundException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
+            .orElseThrow(() -> new CustomException(ErrorCode.INVENTORY_NOT_FOUND, "Inventory not found. productId=" + productId));
 }
+```
+
+## 설정 파일
+
+애플리케이션 기본 설정은 `src/main/resources/application.properties`에서 관리합니다.
+
+```properties
+spring.application.name=order-payment-inventory-concurrency-lab
+spring.datasource.url=jdbc:postgresql://localhost:5432/concurrency_lab
+spring.datasource.username=admin
+spring.datasource.password=admin12!@
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.properties.hibernate.format_sql=true
+spring.jpa.open-in-view=false
+spring.flyway.enabled=true
+```
+
+## 예외 구조
+
+커스텀 예외 클래스는 `CustomException` 하나로 통합되어 있습니다. `CustomException`은 `ErrorCode`를 필드로 가지고, 전역 예외 처리기는 이 `ErrorCode`의 HTTP 상태와 코드 값을 기준으로 JSON 에러 응답을 만듭니다.
+
+예를 들어 재고 부족은 별도 세부 예외 클래스를 만들지 않고 다음처럼 표현합니다.
+
+```java
+throw new CustomException(
+        ErrorCode.INSUFFICIENT_STOCK,
+        "Insufficient stock. quantity=" + quantity + ", requestedQuantity=" + requestedQuantity
+);
 ```
 
 ## 낙관적 락 적용 방식
@@ -148,6 +178,7 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
 - lock TTL이 너무 길면 장애 시 대기 시간이 길어질 수 있음
 - lock 해제는 반드시 lock value 비교 후 수행해야 함
 - DB 트랜잭션 완료 시점과 Redis lock 해제 시점을 함께 관리해야 함
+- 주문 DB 트랜잭션 성공 후 lock 해제에 실패하면 성공 응답을 실패로 뒤집지 않고 로그를 남긴 뒤 TTL 만료에 맡김
 - Redis 장애 또는 네트워크 장애 시 주문을 실패시킬지, 우회할지에 대한 정책이 필요함
 
 ## 비관적 락 동시성 테스트 시나리오
@@ -162,7 +193,7 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
   - 실패 주문 10건
   - 최종 재고 0
   - 성공 주문 수 + 최종 재고 = 초기 재고
-  - 실패 주문은 `InsufficientStockException`
+  - 실패 주문은 `CustomException(ErrorCode.INSUFFICIENT_STOCK)`
 
 테스트는 `ExecutorService`와 `CountDownLatch`를 사용해 여러 주문 요청이 동시에 시작되도록 구성되어 있습니다.
 
@@ -214,7 +245,7 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
 
 테스트는 PostgreSQL Testcontainers와 Redis Testcontainers를 함께 사용합니다. 현재 로컬 실행 환경 이슈가 있으면 테스트 실행 전에 Gradle Test Executor 또는 Docker 감지 단계에서 실패할 수 있습니다.
 
-현재 로컬 Windows 환경에서는 Testcontainers가 Docker를 감지하지 못하는 실행 환경 이슈가 남아 있습니다. 따라서 동시성 테스트 코드는 작성되어 있지만, 해당 환경에서는 Docker/Testcontainers 실행 조건을 먼저 점검해야 합니다.
+현재 로컬 Windows 환경에서는 Gradle Test Executor 또는 Testcontainers 실행 환경 이슈가 남아 있습니다. 따라서 동시성 테스트 코드는 작성되어 있지만, 해당 환경에서는 Gradle 테스트 실행 환경과 Docker/Testcontainers 조건을 먼저 점검해야 합니다.
 
 ## 현재 검증 상태
 
@@ -247,7 +278,7 @@ Spring Boot 애플리케이션을 실행합니다.
 ./gradlew clean build
 ```
 
-`clean build`는 테스트를 포함하므로, 현재 로컬 Windows 환경처럼 Testcontainers가 Docker를 감지하지 못하는 경우 실패할 수 있습니다.
+`clean build`는 테스트를 포함하므로, 현재 로컬 Windows 환경처럼 Gradle Test Executor 또는 Testcontainers 실행 환경 이슈가 있는 경우 실패할 수 있습니다.
 
 동시성 테스트만 단독 실행하려면 다음 명령을 사용합니다.
 
@@ -343,7 +374,7 @@ curl -X GET "http://localhost:8080/api/orders/1"
 - Order 생성/조회
 - 주문 생성 시 재고 차감
 - 재고 부족 예외 처리
-- 공통 예외 응답 처리
+- `CustomException` + `ErrorCode` 기반 공통 예외 응답 처리
 - PostgreSQL Flyway migration
 - 비관적 락 기반 재고 차감
 - 낙관적 락 기반 주문 생성 서비스
