@@ -1,5 +1,6 @@
 package com.ilbo18.concurrencylab.order.presentation;
 
+import com.ilbo18.concurrencylab.order.application.OrderCancelService;
 import com.ilbo18.concurrencylab.order.application.OrderService;
 import com.ilbo18.concurrencylab.order.domain.OrderEntity;
 import jakarta.validation.Valid;
@@ -23,6 +24,7 @@ import java.net.URI;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderCancelService orderCancelService;
 
     /**
      * 주문 항목 기준으로 재고를 차감하고 주문을 생성한다.
@@ -42,5 +44,13 @@ public class OrderController {
     @GetMapping("/{orderId}")
     public OrderResponse get(@PathVariable Long orderId) {
         return OrderResponse.from(orderService.get(orderId));
+    }
+
+    /**
+     * 주문을 취소하고 주문 생성 시 차감했던 재고를 복구한다.
+     */
+    @PostMapping("/{orderId}/cancel")
+    public OrderResponse cancel(@PathVariable Long orderId) {
+        return OrderResponse.from(orderCancelService.cancel(orderId));
     }
 }

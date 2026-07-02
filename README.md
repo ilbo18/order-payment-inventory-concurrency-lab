@@ -12,6 +12,7 @@
 - Redis key 기반 분산락으로 여러 애플리케이션 인스턴스의 재고 차감 진입 구간을 보호하는 방식
 - 주문 금액과 결제 요청 금액을 검증한 뒤 내부 결제 승인으로 주문을 확정하는 기본 흐름
 - Payment 승인 요청의 `Idempotency-Key` 기반 중복 처리 방지 흐름
+- 주문 취소 시 재고를 복구하고, 승인된 내부 결제를 CANCELED로 전환하는 흐름
 
 ## 기술 스택
 
@@ -51,6 +52,8 @@
 - 결제 승인 성공 시 주문 상태 CONFIRMED 전환
 - 주문별 중복 결제 차단
 - `Idempotency-Key` 기반 중복 결제 승인 요청 처리
+- 주문 취소 시 차감 재고 복구
+- 승인된 결제가 있는 주문 취소 시 내부 Payment 상태 CANCELED 전환
 
 ## 동시성 문제
 
@@ -213,6 +216,20 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
 
 금액 해시는 `amount.stripTrailingZeros().toPlainString()` 기준으로 계산하므로 `10000`, `10000.0`, `10000.00`은 같은 요청으로 취급합니다. 멱등키 컬럼은 기존 개발 데이터 migration을 고려해 nullable로 추가했지만, 신규 결제 생성 시 서비스와 도메인에서 필수값으로 검증합니다.
 
+## 주문 취소, 재고 복구, 결제 취소 흐름
+
+`POST /api/orders/{orderId}/cancel`은 주문 생성 시 차감했던 재고를 복구하고 주문 상태를 `CANCELED`로 전환합니다. 주문에 승인된 Payment가 연결되어 있으면 외부 PG 환불 연동 없이 내부 Payment 상태만 `CANCELED`로 변경합니다.
+
+처리 흐름은 다음과 같습니다.
+
+- 주문과 주문 항목 조회
+- 주문 항목의 productId별 취소 수량 합산
+- 같은 재고 row를 주문 생성과 동일하게 `PESSIMISTIC_WRITE`로 잠근 뒤 재고 복구
+- 연결된 Payment가 있으면 APPROVED 상태인 경우에만 CANCELED 전환
+- 주문 상태 CANCELED 전환
+
+취소와 주문 생성이 동시에 같은 상품 재고를 수정할 수 있으므로 재고 복구도 `InventoryRepository.findByProductIdForUpdate`를 사용합니다. 이미 취소된 주문을 다시 취소하면 `ORDER_ALREADY_CANCELED`로 실패합니다. 현재 단계에서는 외부 PG 환불 API 호출과 환불 실패 보상 처리는 구현하지 않았습니다.
+
 ## 비관적 락 동시성 테스트 시나리오
 
 `OrderServiceConcurrencyTest`는 같은 상품에 대한 동시 주문 경합을 재현합니다.
@@ -342,6 +359,12 @@ Payment 서비스 테스트만 단독 실행하려면 다음 명령을 사용합
 ./gradlew test --tests "com.ilbo18.concurrencylab.payment.application.PaymentServiceTest"
 ```
 
+주문 취소 서비스 테스트만 단독 실행하려면 다음 명령을 사용합니다.
+
+```bash
+./gradlew test --tests "com.ilbo18.concurrencylab.order.application.OrderCancelServiceTest"
+```
+
 Windows PowerShell에서는 필요에 따라 `./gradlew` 대신 `.\gradlew.bat`을 사용할 수 있습니다.
 
 ## API 예시
@@ -403,6 +426,12 @@ curl -X POST "http://localhost:8080/api/orders" \
 curl -X GET "http://localhost:8080/api/orders/1"
 ```
 
+### 주문 취소
+
+```bash
+curl -X POST "http://localhost:8080/api/orders/1/cancel"
+```
+
 ### 결제 승인
 
 ```bash
@@ -439,6 +468,8 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - 결제 승인 시 주문 상태 CONFIRMED 전환
 - 주문 금액과 결제 요청 금액 검증
 - 결제 승인 멱등키 처리
+- 주문 취소 시 재고 복구
+- 승인된 내부 Payment 취소 처리
 - 재고 부족 예외 처리
 - `CustomException` + `ErrorCode` 기반 공통 예외 응답 처리
 - PostgreSQL Flyway migration
@@ -448,11 +479,13 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - Redis 분산락 기반 주문 생성 서비스
 - 비관적 락/낙관적 락/재시도 낙관적 락/Redis 분산락 주문 생성 동시성 테스트 코드
 - Payment 서비스 테스트 코드
+- 주문 취소 서비스 테스트 코드
 
 미구현:
 
-- 주문 취소 시 재고 복구
 - 외부 PG 연동
+- 외부 PG 환불 연동
+- 환불 실패 보상 처리
 - 결제 실패 콜백 처리
 - Redis 장애 시 주문 처리 정책
 
@@ -462,6 +495,6 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - Redis lock TTL, 재시도 횟수, 대기 시간을 설정화
 - Redis 장애 시 주문 실패/우회 정책 정리
 - 외부 PG 승인/실패 연동 흐름 추가
-- 주문 취소와 재고 복구 보상 처리 추가
+- 외부 PG 환불과 환불 실패 보상 처리 추가
 - 주문 생성 멱등키 처리 추가
 - Testcontainers 테스트 실행 환경 안정화

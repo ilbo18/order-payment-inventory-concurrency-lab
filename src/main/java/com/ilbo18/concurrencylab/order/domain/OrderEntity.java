@@ -68,6 +68,7 @@ public class OrderEntity {
      * 결제 실패나 사용자 취소 시 주문을 취소 상태로 전환한다.
      */
     public void cancel() {
+        validateCancelableStatus();
         this.status = OrderStatus.CANCELED;
     }
 
@@ -98,6 +99,12 @@ public class OrderEntity {
     private void validateCreatedStatus(String action) {
         if (this.status != OrderStatus.CREATED) {
             throw new CustomException(ErrorCode.PAYMENT_ALREADY_COMPLETED, "Order cannot " + action + ". orderId=" + this.id + ", status=" + this.status);
+        }
+    }
+
+    private void validateCancelableStatus() {
+        if (this.status == OrderStatus.CANCELED) {
+            throw new CustomException(ErrorCode.ORDER_ALREADY_CANCELED, "Order already canceled. orderId=" + this.id);
         }
     }
 }

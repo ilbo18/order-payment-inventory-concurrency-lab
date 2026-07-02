@@ -97,6 +97,19 @@ public class Payment {
         this.failureReason = reason;
     }
 
+    /**
+     * 승인된 결제를 내부 취소 상태로 전환한다. 외부 PG 환불 연동은 아직 수행하지 않는다.
+     */
+    public void cancel() {
+        if (this.status != PaymentStatus.APPROVED) {
+            throw new CustomException(ErrorCode.PAYMENT_CANNOT_CANCEL, "Payment cannot cancel. paymentId=" + this.id + ", status=" + this.status);
+        }
+
+        this.status = PaymentStatus.CANCELED;
+        // 취소는 결제 승인 실패가 아니므로 failureReason은 기록하지 않는다.
+        this.failureReason = null;
+    }
+
     @PrePersist
     void prePersist() {
         LocalDateTime now = LocalDateTime.now();
@@ -110,7 +123,7 @@ public class Payment {
     }
 
     private void validateNotCompleted() {
-        if (this.status == PaymentStatus.APPROVED || this.status == PaymentStatus.FAILED) {
+        if (this.status == PaymentStatus.APPROVED || this.status == PaymentStatus.FAILED || this.status == PaymentStatus.CANCELED) {
             throw new CustomException(ErrorCode.PAYMENT_ALREADY_COMPLETED, "Payment already completed. paymentId=" + this.id + ", status=" + this.status);
         }
     }
