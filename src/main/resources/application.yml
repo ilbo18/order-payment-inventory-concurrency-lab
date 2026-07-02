@@ -5,6 +5,10 @@ spring:
     url: jdbc:postgresql://localhost:5432/concurrency_lab
     username: "admin"
     password: "admin12!@"
+  data:
+    redis:
+      host: localhost
+      port: 6379
   jpa:
     hibernate:
       ddl-auto: validate

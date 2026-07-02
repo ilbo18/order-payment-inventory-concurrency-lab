@@ -9,7 +9,8 @@
 - PostgreSQL row-level lock 기반의 비관적 락 적용 방식
 - JPA `@Version` 기반의 낙관적 락 충돌 감지 방식
 - 낙관적 락 충돌 발생 시 제한된 횟수만큼 재시도하는 방식
-- 향후 Redis 분산락, 멱등키를 비교하기 위한 기반 구조
+- Redis key 기반 분산락으로 여러 애플리케이션 인스턴스의 재고 차감 진입 구간을 보호하는 방식
+- 향후 멱등키를 비교하기 위한 기반 구조
 
 ## 기술 스택
 
@@ -17,6 +18,7 @@
 - Spring Boot 3.x
 - Spring Data JPA
 - PostgreSQL
+- Redis
 - Flyway
 - Testcontainers
 - JUnit5
@@ -42,6 +44,7 @@
 - 비관적 락 기반 재고 차감 정합성 보장
 - 낙관적 락 기반 주문 생성 흐름과 동시성 충돌 감지 테스트
 - 낙관적 락 충돌 재시도 기반 주문 생성 흐름과 동시성 테스트
+- Redis 분산락 기반 주문 생성 흐름과 동시성 테스트
 
 ## 동시성 문제
 
@@ -129,6 +132,23 @@ public OrderEntity create(CreateOrderCommand command) {
 | 비관적 락 | Inventory row 조회 시점에 `PESSIMISTIC_WRITE`로 잠그고 같은 상품 재고 차감을 직렬화 | 구현 완료 |
 | 낙관적 락 | row를 미리 잠그지 않고 `@Version`으로 커밋 시점 충돌 감지 | 구현 완료 |
 | 낙관적 락 + 재시도 | 낙관적 락 충돌 시 새 트랜잭션으로 제한 횟수 재시도 | 구현 완료 |
+| Redis 분산락 | DB row lock 대신 `lock:inventory:{productId}` key를 먼저 획득해 주문 생성 진입 구간 보호 | 구현 완료 |
+
+## Redis 분산락 적용 방식
+
+`RedisLockOrderService`는 주문 항목의 productId를 모아 정렬한 뒤 `lock:inventory:{productId}` 형식의 Redis lock key를 획득합니다. 여러 상품 주문에서 항상 정렬된 순서로 lock을 잡아 서로 다른 요청이 lock 획득 순서 때문에 교착되는 위험을 줄입니다.
+
+Redis lock을 획득한 뒤 `RedisLockOrderTransactionService`에서 일반 `InventoryRepository.findByProductId` 조회로 재고를 차감하고 주문을 저장합니다. 즉, DB row lock이 아니라 애플리케이션 진입 전에 Redis key로 같은 상품의 재고 차감 구간을 보호하는 방식입니다.
+
+Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해제할 때는 단순 `delete`를 사용하지 않고, 저장된 value가 내가 획득한 UUID 토큰과 같은 경우에만 Lua script로 삭제합니다. TTL 만료 후 다른 요청이 같은 key를 새로 획득했을 때 이전 요청이 그 lock을 잘못 삭제하는 상황을 막기 위해서입니다.
+
+주의할 점은 다음과 같습니다.
+
+- lock TTL이 너무 짧으면 DB 트랜잭션이 끝나기 전에 lock이 만료될 수 있음
+- lock TTL이 너무 길면 장애 시 대기 시간이 길어질 수 있음
+- lock 해제는 반드시 lock value 비교 후 수행해야 함
+- DB 트랜잭션 완료 시점과 Redis lock 해제 시점을 함께 관리해야 함
+- Redis 장애 또는 네트워크 장애 시 주문을 실패시킬지, 우회할지에 대한 정책이 필요함
 
 ## 비관적 락 동시성 테스트 시나리오
 
@@ -177,6 +197,22 @@ public OrderEntity create(CreateOrderCommand command) {
   - 실패 원인은 재고 부족 또는 재시도 소진 후 낙관적 락 충돌일 수 있음
 
 재시도 횟수가 충분하면 성공 주문 수가 초기 재고에 가까워질 수 있지만, 테스트는 스레드 스케줄링에 과하게 의존하지 않도록 재고 정합성 불변식을 중심으로 검증합니다.
+
+## Redis 분산락 동시성 테스트 시나리오
+
+`RedisLockOrderServiceConcurrencyTest`는 같은 상품에 대한 동시 주문 요청이 Redis lock key를 경합하는 상황을 재현합니다.
+
+- 초기 재고: 10
+- 동시 주문 요청: 20
+- 주문 수량: 각 1개
+- 기대 결과:
+  - 성공 주문 수는 초기 재고 이하
+  - 최종 재고는 음수가 아님
+  - 생성된 주문 수 = 성공 주문 수
+  - 성공 주문 수 + 최종 재고 = 초기 재고
+  - 실패 원인은 재고 부족 또는 Redis lock 획득 실패일 수 있음
+
+테스트는 PostgreSQL Testcontainers와 Redis Testcontainers를 함께 사용합니다. 현재 로컬 실행 환경 이슈가 있으면 테스트 실행 전에 Gradle Test Executor 또는 Docker 감지 단계에서 실패할 수 있습니다.
 
 현재 로컬 Windows 환경에서는 Testcontainers가 Docker를 감지하지 못하는 실행 환경 이슈가 남아 있습니다. 따라서 동시성 테스트 코드는 작성되어 있지만, 해당 환경에서는 Docker/Testcontainers 실행 조건을 먼저 점검해야 합니다.
 
@@ -229,6 +265,12 @@ Spring Boot 애플리케이션을 실행합니다.
 
 ```bash
 ./gradlew test --tests "com.ilbo18.concurrencylab.order.application.RetryingOptimisticOrderServiceConcurrencyTest"
+```
+
+Redis 분산락 동시성 테스트만 단독 실행하려면 다음 명령을 사용합니다.
+
+```bash
+./gradlew test --tests "com.ilbo18.concurrencylab.order.application.RedisLockOrderServiceConcurrencyTest"
 ```
 
 Windows PowerShell에서는 필요에 따라 `./gradlew` 대신 `.\gradlew.bat`을 사용할 수 있습니다.
@@ -306,19 +348,21 @@ curl -X GET "http://localhost:8080/api/orders/1"
 - 비관적 락 기반 재고 차감
 - 낙관적 락 기반 주문 생성 서비스
 - 낙관적 락 충돌 재시도 기반 주문 생성 서비스
-- 비관적 락/낙관적 락/재시도 낙관적 락 주문 생성 동시성 테스트 코드
+- Redis 분산락 기반 주문 생성 서비스
+- 비관적 락/낙관적 락/재시도 낙관적 락/Redis 분산락 주문 생성 동시성 테스트 코드
 
 미구현:
 
 - Payment
-- Redis 분산락 비교
 - 주문 취소 시 재고 복구
 - 결제 멱등키
+- Redis 장애 시 주문 처리 정책
 
 ## 향후 개선 계획
 
 - 낙관적 락 재시도 횟수와 백오프 정책 설정화
-- Redis 분산락 기반 재고 차감 방식 추가
+- Redis lock TTL, 재시도 횟수, 대기 시간을 설정화
+- Redis 장애 시 주문 실패/우회 정책 정리
 - Payment 승인/실패 흐름 추가
 - 주문 취소와 재고 복구 보상 처리 추가
 - 멱등키 기반 중복 주문/중복 결제 방지 추가
