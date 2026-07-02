@@ -4,6 +4,9 @@ import com.ilbo18.concurrencylab.common.exception.CustomException;
 import com.ilbo18.concurrencylab.common.exception.ErrorCode;
 import com.ilbo18.concurrencylab.order.domain.OrderEntity;
 import com.ilbo18.concurrencylab.order.infrastructure.OrderRepository;
+import com.ilbo18.concurrencylab.payment.application.gateway.PaymentGateway;
+import com.ilbo18.concurrencylab.payment.application.gateway.PaymentGatewayApproveRequest;
+import com.ilbo18.concurrencylab.payment.application.gateway.PaymentGatewayResult;
 import com.ilbo18.concurrencylab.payment.domain.Payment;
 import com.ilbo18.concurrencylab.payment.infrastructure.PaymentRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +20,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * 외부 PG 연동 없이 주문 금액 검증과 내부 결제 승인 트랜잭션을 처리한다.
+ * 주문 금액 검증과 PaymentGateway 승인 결과를 기준으로 내부 결제 상태를 확정한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -26,9 +29,10 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderRepository orderRepository;
+    private final PaymentGateway paymentGateway;
 
     /**
-     * 주문 금액과 결제 요청 금액이 일치하면 결제를 승인하고 주문 상태를 CONFIRMED로 확정한다.
+     * 멱등키를 검증한 뒤 신규 요청에 대해서만 PaymentGateway를 호출하고 승인 또는 실패 결과를 저장한다.
      */
     @Transactional
     public Payment approve(PaymentApproveCommand command) {
@@ -44,8 +48,8 @@ public class PaymentService {
         validateAmountMatches(order, command.amount());
 
         Payment payment = Payment.ready(order.getId(), command.amount(), command.idempotencyKey(), requestHash);
-        payment.approve();
-        order.confirm();
+        PaymentGatewayResult gatewayResult = paymentGateway.approve(new PaymentGatewayApproveRequest(order.getId(), command.amount(), command.idempotencyKey()));
+        applyGatewayResult(payment, order, gatewayResult);
 
         return paymentRepository.save(payment);
     }
@@ -114,6 +118,24 @@ public class PaymentService {
                     "Payment amount mismatch. orderId=" + order.getId() + ", orderAmount=" + order.getTotalAmount() + ", requestedAmount=" + requestedAmount
             );
         }
+    }
+
+    private void applyGatewayResult(Payment payment, OrderEntity order, PaymentGatewayResult gatewayResult) {
+        if (gatewayResult.success()) {
+            payment.approve();
+            order.confirm();
+            return;
+        }
+
+        // 실패 결제도 저장해야 같은 멱등키 재요청 시 새 PG 호출 없이 기존 실패 결과를 반환할 수 있다.
+        payment.fail(resolveFailureReason(gatewayResult));
+    }
+
+    private String resolveFailureReason(PaymentGatewayResult gatewayResult) {
+        if (gatewayResult.failureReason() == null || gatewayResult.failureReason().isBlank()) {
+            return "Payment gateway approval failed.";
+        }
+        return gatewayResult.failureReason();
     }
 
     private void validatePaymentId(Long paymentId) {

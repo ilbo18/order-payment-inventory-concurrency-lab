@@ -10,7 +10,7 @@
 - JPA `@Version` 기반의 낙관적 락 충돌 감지 방식
 - 낙관적 락 충돌 발생 시 제한된 횟수만큼 재시도하는 방식
 - Redis key 기반 분산락으로 여러 애플리케이션 인스턴스의 재고 차감 진입 구간을 보호하는 방식
-- 주문 금액과 결제 요청 금액을 검증한 뒤 내부 결제 승인으로 주문을 확정하는 기본 흐름
+- 주문 금액과 결제 요청 금액을 검증한 뒤 Fake PaymentGateway 결과로 결제를 승인/실패 처리하는 흐름
 - Payment 승인 요청의 `Idempotency-Key` 기반 중복 처리 방지 흐름
 - 주문 취소 시 재고를 복구하고, 승인된 내부 결제를 CANCELED로 전환하는 흐름
 
@@ -192,18 +192,23 @@ Redis lock은 `SET NX PX` 방식으로 TTL을 가진 key를 생성합니다. 해
 
 ## Payment 기본 승인 흐름
 
-`PaymentService.approve`는 외부 PG 연동 없이 내부 결제 승인 흐름만 처리합니다. 결제 요청 금액이 주문 총액과 일치하면 `Payment`를 `APPROVED` 상태로 저장하고, 주문 상태를 `CONFIRMED`로 전환합니다.
+`PaymentService.approve`는 실제 외부 PG를 호출하지 않고 `PaymentGateway` 인터페이스를 통해 결제 승인 경계를 분리합니다. 현재 기본 구현체인 `FakePaymentGateway`는 외부 PG 연동 전 포트폴리오용 구조 검증을 위한 Fake 구현이며, 기본 동작은 승인 성공입니다.
+
+결제 요청 금액이 주문 총액과 일치하면 신규 결제 요청에 대해서만 `PaymentGateway.approve`를 호출합니다. Gateway 성공 결과가 오면 `Payment`를 `APPROVED` 상태로 저장하고 주문 상태를 `CONFIRMED`로 전환합니다. Gateway 실패 결과가 오면 예외로 rollback하지 않고 `Payment`를 `FAILED` 상태로 저장하며, 주문 상태는 `CREATED`로 유지합니다.
 
 처리 흐름은 다음과 같습니다.
 
+- 멱등키와 요청 해시 검증
 - 주문 조회
 - 주문별 기존 결제 존재 여부 확인
 - 주문 총액과 결제 요청 금액 비교
-- Payment 생성 후 승인 처리
-- Order 상태 CONFIRMED 전환
+- Payment READY 생성
+- PaymentGateway 승인 요청
+- Gateway 성공 시 Payment APPROVED 처리와 Order 상태 CONFIRMED 전환
+- Gateway 실패 시 Payment FAILED 처리와 실패 사유 저장
 - Payment 저장
 
-현재 단계에서는 외부 PG 승인과 결제 실패 콜백을 구현하지 않았습니다. 금액 검증이 통과하면 내부 승인 성공으로 간주합니다.
+실패 Payment를 저장하는 이유는 실패 결과도 조회 가능하게 하고, 같은 `Idempotency-Key` 재요청 시 새 Gateway 호출 없이 기존 실패 결과를 반환하기 위해서입니다. 현재 단계에서는 외부 PG 승인/실패 HTTP 연동, 결제 실패 콜백, FAILED Payment가 있는 주문의 취소/재고 복구 정책, 결제 실패 시 자동 주문 취소와 재고 복구 보상 정책은 구현하지 않았습니다.
 
 ## Payment 멱등키 흐름
 
@@ -488,11 +493,12 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - Product 등록/조회
 - Inventory 등록/조회
 - Order 생성/조회
-- Payment 내부 승인/조회
+- FakePaymentGateway 기반 Payment 승인/실패/조회
 - 주문 생성 시 재고 차감
 - 결제 승인 시 주문 상태 CONFIRMED 전환
 - 주문 금액과 결제 요청 금액 검증
 - 결제 승인 멱등키 처리
+- 결제 실패 시 Payment FAILED 저장
 - 주문 취소 시 재고 복구
 - 승인된 내부 Payment 취소 처리
 - 재고 부족 예외 처리
@@ -512,6 +518,8 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - 외부 PG 환불 연동
 - 환불 실패 보상 처리
 - 결제 실패 콜백 처리
+- FAILED Payment가 있는 주문의 취소/재고 복구 정책
+- 결제 실패 시 자동 주문 취소/재고 복구 보상 정책
 - Redis 장애 시 주문 처리 정책
 
 ## 향후 개선 계획
@@ -521,5 +529,6 @@ curl -X GET "http://localhost:8080/api/payments/orders/1"
 - Redis 장애 시 주문 실패/우회 정책 정리
 - 외부 PG 승인/실패 연동 흐름 추가
 - 외부 PG 환불과 환불 실패 보상 처리 추가
+- FAILED Payment가 있는 주문의 취소/재고 복구 정책 정리
+- 결제 실패 시 주문 취소와 재고 복구 보상 정책 추가
 - 주문 생성 멱등키 처리 추가
-- Testcontainers 테스트 실행 환경 안정화

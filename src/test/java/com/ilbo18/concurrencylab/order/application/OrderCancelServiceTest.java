@@ -11,6 +11,7 @@ import com.ilbo18.concurrencylab.payment.application.PaymentApproveCommand;
 import com.ilbo18.concurrencylab.payment.application.PaymentService;
 import com.ilbo18.concurrencylab.payment.domain.Payment;
 import com.ilbo18.concurrencylab.payment.domain.PaymentStatus;
+import com.ilbo18.concurrencylab.payment.infrastructure.gateway.FakePaymentGateway;
 import com.ilbo18.concurrencylab.payment.infrastructure.PaymentRepository;
 import com.ilbo18.concurrencylab.product.domain.Product;
 import com.ilbo18.concurrencylab.product.infrastructure.ProductRepository;
@@ -37,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 @ActiveProfiles("test")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({OrderService.class, OrderCancelService.class, PaymentService.class})
+@Import({OrderService.class, OrderCancelService.class, PaymentService.class, FakePaymentGateway.class})
 class OrderCancelServiceTest {
 
     @Container

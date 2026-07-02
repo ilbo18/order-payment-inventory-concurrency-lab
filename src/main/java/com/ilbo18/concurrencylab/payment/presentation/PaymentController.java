@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 
 /**
- * 주문 금액 검증 기반의 내부 결제 승인과 결제 결과 조회 API를 제공한다.
+ * 주문 금액 검증과 PaymentGateway 결과 기반의 결제 승인/실패 조회 API를 제공한다.
  */
 @RestController
 @RequiredArgsConstructor
@@ -26,7 +26,7 @@ public class PaymentController {
     private final PaymentService paymentService;
 
     /**
-     * Idempotency-Key 기준으로 중복 요청을 식별하고, 외부 PG 연동 없이 요청 금액과 주문 금액을 검증한 뒤 결제를 승인한다.
+     * Idempotency-Key 기준으로 중복 요청을 식별하고, 신규 요청은 PaymentGateway 승인 결과에 따라 결제 상태를 확정한다.
      */
     @PostMapping("/approve")
     public ResponseEntity<PaymentResponse> approve(
